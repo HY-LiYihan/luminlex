@@ -3,6 +3,7 @@ import random
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import api_utils
+import streamlit as st
 
 class QuestionGenerator:
     """题目生成器核心类"""
@@ -41,6 +42,18 @@ class QuestionGenerator:
             "ielts": {"name": "雅思", "level": "hard"},
             "toefl": {"name": "托福", "level": "hard"}
         }
+        
+        # 初始化可用AI平台
+        self.available_platforms = {}
+        self._init_ai_platforms()
+    
+    def _init_ai_platforms(self):
+        """初始化可用的AI平台"""
+        try:
+            self.available_platforms = api_utils.probe_available_platforms()
+        except Exception as e:
+            print(f"初始化AI平台失败: {e}")
+            self.available_platforms = {}
     
     def generate_question(self, 
                          exam_type: str,
@@ -54,8 +67,14 @@ class QuestionGenerator:
         # 构建提示词
         prompt = self._build_prompt(exam_type, question_type, subtype, difficulty, topic, word_count)
         
-        # 这里暂时返回模拟数据，实际应该调用AI API
-        return self._generate_mock_question(exam_type, question_type, subtype, difficulty, topic)
+        # 尝试使用AI API生成题目
+        ai_result = self._generate_with_ai(prompt)
+        
+        if ai_result:
+            return ai_result
+        else:
+            # 如果AI生成失败，返回模拟数据
+            return self._generate_mock_question(exam_type, question_type, subtype, difficulty, topic)
     
     def _build_prompt(self,
                      exam_type: str,
@@ -95,6 +114,64 @@ class QuestionGenerator:
 """
         
         return prompt
+    
+    def _generate_with_ai(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """使用AI API生成题目"""
+        
+        if not self.available_platforms:
+            return None
+        
+        # 选择第一个可用的平台
+        platform_id = list(self.available_platforms.keys())[0]
+        platform_info = self.available_platforms[platform_id]
+        
+        try:
+            # 构建消息
+            messages = [
+                {"role": "system", "content": "你是一个专业的英语教育专家，擅长生成各种英语考试题目。请严格按照要求的JSON格式返回题目。"},
+                {"role": "user", "content": prompt}
+            ]
+            
+            # 调用AI API
+            response_text = api_utils.get_chat_response(
+                platform=platform_id,
+                api_key=platform_info["api_key"],
+                model=platform_info["default_model"],
+                messages=messages,
+                temperature=0.3
+            )
+            
+            # 尝试解析JSON响应
+            try:
+                # 提取JSON部分（AI可能会在回答中添加额外文本）
+                import re
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group()
+                    result = json.loads(json_str)
+                    
+                    # 验证必要字段
+                    required_fields = ["question", "answer", "explanation", "difficulty", "estimated_time"]
+                    if all(field in result for field in required_fields):
+                        # 添加AI生成标记
+                        result["generated_by_ai"] = True
+                        result["ai_platform"] = platform_info["name"]
+                        return result
+                    else:
+                        print(f"AI响应缺少必要字段: {result}")
+                        return None
+                else:
+                    print(f"无法从AI响应中提取JSON: {response_text[:200]}...")
+                    return None
+                    
+            except json.JSONDecodeError as e:
+                print(f"解析AI响应JSON失败: {e}")
+                print(f"响应内容: {response_text[:200]}...")
+                return None
+                
+        except Exception as e:
+            print(f"AI生成题目失败: {e}")
+            return None
     
     def _generate_mock_question(self,
                               exam_type: str,

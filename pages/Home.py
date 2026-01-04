@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import random
 from datetime import datetime
+import question_generator
 
 def main():
     """主函数"""
@@ -14,6 +15,7 @@ def main():
     <div style='background-color: rgba(255, 214, 102, 0.1); padding: 1rem; border-radius: 12px; border-left: 4px solid #FFD166; margin-bottom: 1.5rem;'>
     <p style='color: #5D4037; line-height: 1.5; margin: 0;'>
         一个简单的英语题目生成工具，点击按钮即可生成四六级等英语考试题目。
+        系统会自动尝试使用AI API生成真实题目，如果AI不可用则使用模拟数据。
     </p>
     </div>
     """, unsafe_allow_html=True)
@@ -24,6 +26,14 @@ def main():
     if "question_history" not in st.session_state:
         st.session_state.question_history = []
     
+    # 显示AI平台状态
+    available_platforms = question_generator.question_generator.available_platforms
+    if available_platforms:
+        platform_names = [platform["name"] for platform in available_platforms.values()]
+        st.info(f"✅ 检测到可用的AI平台: {', '.join(platform_names)}")
+    else:
+        st.warning("⚠️ 未检测到可用的AI平台，将使用模拟数据生成题目")
+    
     # 创建两列布局
     col1, col2 = st.columns([1, 1])
     
@@ -31,29 +41,66 @@ def main():
         # 题目生成选项
         st.subheader("🎯 生成选项")
         
+        # 考试类型映射
+        exam_type_mapping = {
+            "CET-4": "cet4",
+            "CET-6": "cet6", 
+            "TEM-4": "tem4",
+            "TEM-8": "tem8",
+            "IELTS": "ielts",
+            "TOEFL": "toefl"
+        }
+        
+        # 题目类型映射
+        question_type_mapping = {
+            "听力": "listening",
+            "阅读": "reading",
+            "写作": "writing",
+            "翻译": "translation"
+        }
+        
+        # 难度映射
+        difficulty_mapping = {
+            "简单": "easy",
+            "中等": "medium",
+            "困难": "hard"
+        }
+        
         # 考试类型
-        exam_type = st.selectbox(
+        exam_type_display = st.selectbox(
             "选择考试类型",
             options=["CET-4", "CET-6", "TEM-4", "TEM-8", "IELTS", "TOEFL"],
             index=0,
             help="选择要生成的考试类型"
         )
+        exam_type = exam_type_mapping[exam_type_display]
         
         # 题目类型
-        question_type = st.selectbox(
+        question_type_display = st.selectbox(
             "选择题目类型",
             options=["听力", "阅读", "写作", "翻译"],
             index=1,
             help="选择题目类型"
         )
+        question_type = question_type_mapping[question_type_display]
+        
+        # 获取子类型
+        subtypes = question_generator.question_generator.question_types.get(question_type, {}).get("subtypes", [""])
+        subtype = st.selectbox(
+            "选择子类型",
+            options=subtypes,
+            index=0,
+            help="选择题目子类型"
+        )
         
         # 难度
-        difficulty = st.selectbox(
+        difficulty_display = st.selectbox(
             "选择难度",
             options=["简单", "中等", "困难"],
             index=1,
             help="选择题目难度"
         )
+        difficulty = difficulty_mapping[difficulty_display]
         
         # 主题（可选）
         topic = st.text_input(
@@ -75,19 +122,48 @@ def main():
         
         if generate_btn:
             with st.spinner("正在生成题目..."):
-                # 生成模拟题目
-                question = generate_mock_question(exam_type, question_type, difficulty, topic)
-                
-                # 保存到session state
-                st.session_state.current_question = question
-                st.session_state.question_history.append({
-                    "timestamp": datetime.now().strftime("%H:%M:%S"),
-                    "exam_type": exam_type,
-                    "question_type": question_type,
-                    "question": question
-                })
-                
-                st.success("题目生成成功！")
+                try:
+                    # 使用question_generator生成题目
+                    question = question_generator.question_generator.generate_question(
+                        exam_type=exam_type,
+                        question_type=question_type,
+                        subtype=subtype,
+                        difficulty=difficulty,
+                        topic=topic if topic else None
+                    )
+                    
+                    # 添加显示用的字段
+                    question["exam_type_display"] = exam_type_display
+                    question["question_type_display"] = question_type_display
+                    question["difficulty_display"] = difficulty_display
+                    
+                    # 保存到session state
+                    st.session_state.current_question = question
+                    st.session_state.question_history.append({
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        "exam_type": exam_type_display,
+                        "question_type": question_type_display,
+                        "question": question
+                    })
+                    
+                    # 显示生成方式
+                    if question.get("generated_by_ai", True):
+                        st.success("✅ 题目生成成功！(使用AI生成)")
+                    else:
+                        st.success("✅ 题目生成成功！(使用模拟数据)")
+                        
+                except Exception as e:
+                    st.error(f"生成题目时出错: {str(e)}")
+                    # 如果出错，使用模拟数据
+                    question = generate_mock_question(exam_type_display, question_type_display, difficulty_display, topic)
+                    st.session_state.current_question = question
+                    st.session_state.question_history.append({
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        "exam_type": exam_type_display,
+                        "question_type": question_type_display,
+                        "question": question
+                    })
+                    st.success("✅ 题目生成成功！(使用模拟数据)")
         
         # 显示当前题目
         if st.session_state.current_question:
