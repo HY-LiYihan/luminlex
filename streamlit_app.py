@@ -131,6 +131,23 @@ st.markdown("""
         height: 2px !important;
         background: linear-gradient(to right, transparent, var(--color-accent), transparent) !important;
     }
+    
+    /* 完全隐藏侧边栏 */
+    section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+    
+    /* 隐藏侧边栏切换按钮 */
+    .st-emotion-cache-1oe5cao {
+        display: none !important;
+    }
+    
+    /* 调整主内容区域宽度 */
+    .main .block-container {
+        max-width: 1000px !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
